@@ -323,7 +323,7 @@ class Character extends FlxSprite {
 				if (zipAnimations.exists(key)) {
 					// Accept indices override if provided
 					if (indices != null && indices.length > 0) {
-						zipAnimations.set(key, override);
+						zipAnimations.set(key);
 					}
 					zipFPS.set(key, fps);
 					zipLoop.set(key, loop);
