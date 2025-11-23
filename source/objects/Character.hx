@@ -1,43 +1,55 @@
 package objects;
 
-import flixel.FlxSprite;
 import flixel.FlxG;
-import flixel.util.FlxColor;
+import flixel.FlxSprite;
+import flixel.graphics.frames.FlxAtlasFrames;
 import flixel.text.FlxText;
-import flixel.util.FlxSort;
-import haxe.Json;
-import haxe.io.Bytes;
-import haxe.io.BytesInput;
-import haxe.zip.Reader;
-import haxe.zip.Entry;
-import sys.FileSystem;
-import sys.io.File;
-import openfl.display.BitmapData;
-import openfl.geom.Matrix;
-import openfl.geom.ColorTransform;
-#if flxanimate
-import flxanimate.animate.FlxAnim;
-import flxanimate.animate.FlxSymbol;
-#end
+import flixel.util.FlxColor;
+import flixel.util.FlxDestroyUtil;
+
 import backend.Paths;
 import backend.ClientPrefs;
 import backend.animation.PsychAnimationController;
 
-/**
- * CharacterFile structure (matches Psych 1.0.4)
- */
+import states.PlayState;
+import backend.Song;
+import backend.Song.SwagSong;
+import objects.TankmenBG;
+
+import haxe.Json;
+import haxe.io.Bytes;
+import haxe.io.BytesInput;
+
+import sys.io.File;
+import sys.FileSystem;
+
+import haxe.zip.Reader;
+import haxe.zip.Entry;
+
+import openfl.display.BitmapData;
+import openfl.display.PNGEncoderOptions;
+import openfl.geom.Matrix;
+import openfl.geom.ColorTransform;
+
+#if flxanimate
+import flxanimate.FlxAnimate;
+#end
+
 typedef CharacterFile = {
 	var animations:Array<AnimArray>;
 	var image:String;
 	var scale:Float;
 	var sing_duration:Float;
 	var healthicon:String;
+
 	var position:Array<Float>;
 	var camera_position:Array<Float>;
+
 	var flip_x:Bool;
 	var no_antialiasing:Bool;
 	var healthbar_colors:Array<Int>;
 	var vocals_file:String;
+
 	@:optional var _editor_isPlayer:Null<Bool>;
 }
 
@@ -50,784 +62,808 @@ typedef AnimArray = {
 	var offsets:Array<Int>;
 }
 
-/**
- * Character with ZIP Animate Import support
- */
-class Character extends FlxSprite {
-	public static final DEFAULT_CHARACTER:String = "bf";
+class Character extends FlxSprite
+{
+	//====================================================
+	// CORE FIELDS
+	//====================================================
 
-	public var animOffsets:Map<String, Array<Float>> = new Map();
-	public var extraData:Map<String, Dynamic> = new Map();
-	public var debugMode:Bool = false;
+	public static inline final DEFAULT_CHARACTER:String = "bf";
 
+	public var animOffsets:Map<String, Array<Dynamic>> = new Map();
 	public var isPlayer:Bool = false;
 	public var curCharacter:String = DEFAULT_CHARACTER;
+	public var debugMode:Bool = false;
 
 	public var holdTimer:Float = 0;
 	public var heyTimer:Float = 0;
 	public var specialAnim:Bool = false;
 	public var stunned:Bool = false;
-
-	public var singDuration:Float = 4;
-	public var idleSuffix:String = "";
-	public var danceIdle:Bool = false;
 	public var skipDance:Bool = false;
+	public var danceIdle:Bool = false;
+	public var danced:Bool = false;
+	public var idleSuffix:String = '';
+	public var singDuration:Float = 4;
 
 	public var healthIcon:String = "face";
 	public var animationsArray:Array<AnimArray> = [];
+	public var animationNotes:Array<Dynamic> = [];
 
 	public var positionArray:Array<Float> = [0, 0];
 	public var cameraPosition:Array<Float> = [0, 0];
 	public var healthColorArray:Array<Int> = [255, 0, 0];
 
-	public var vocalsFile:String = "";
+	public var missingCharacter:Bool = false;
+	public var missingText:FlxText;
+	public var vocalsFile:String = '';
 	public var jsonScale:Float = 1;
+	public var imageFile:String = '';
 	public var noAntialiasing:Bool = false;
 	public var originalFlipX:Bool = false;
 	public var editorIsPlayer:Null<Bool> = null;
 
-	public var missingCharacter:Bool = false;
-	public var missingText:FlxText;
+	//====================================================
+	// ZIP SYSTEM
+	//====================================================
 
-	// ZIP/Animate support
-	public var isZipAtlas(default, null):Bool = false;
-	public var zipSymbols:Map<String, BitmapData> = new Map();
-	public var zipAnimations:Map<String, Array<Int>> = new Map(); // timeline frames
-	public var zipFPS:Map<String, Int> = new Map();
-	public var zipLoop:Map<String, Bool> = new Map();
-	public var zipOffsets:Map<String, Array<Float>> = new Map();
-	public var zipSymbolCount:Int = 0;
+	public var isZip:Bool = false;
+	public var zipIsAnimate:Bool = false;
+	public var zipIsSpritesheet:Bool = false;
+
+	public var zipSymbols:Array<String> = [];
+	public var zipFrames:Map<String, Array<BitmapData>> = new Map();
+	public var animateMap:Map<String, Array<Int>> = new Map();
+
+	public var zipSpritesheetPNG:BitmapData = null;
+	public var zipSpritesheetXML:String = null;
+
+	private var _zipFrame:Int = 0;
+
+	private var _lastPlayedAnimation:String = "";
+
+	public var isAnimateAtlas(default, null):Bool = false;
 
 	#if flxanimate
-	public var atlas:FlxAnimate; // will be used to display ZIP frames
-
+	public var atlas:FlxAnimate;
 	#end
-	public function new(x:Float, y:Float, ?character:String = "bf", ?isPlayer:Bool = false) {
+
+	// NEW (REQUIRED)
+	public var zipLibrary:Dynamic = null;
+	public var zipData:Dynamic = null;
+
+	//====================================================
+	// CONSTRUCTOR
+	//====================================================
+
+	public function new(x:Float, y:Float, ?character:String = 'bf', ?isPlayer:Bool = false)
+	{
 		super(x, y);
 
-		this.isPlayer = isPlayer;
-		animOffsets = new Map<String, Array<Float>>();
 		animation = new PsychAnimationController(this);
 
+		animOffsets = new Map<String, Array<Dynamic>>();
+		this.isPlayer = isPlayer;
+
 		changeCharacter(character);
+
+		switch(curCharacter)
+		{
+			case 'pico-speaker':
+				skipDance = true;
+				loadMappedAnims();
+				playAnim("shoot1");
+			case 'pico-blazin', 'darnell-blazin':
+				skipDance = true;
+		}
 	}
 
-	// ===================================================================================
-	// ZIP SUPPORT
-	// ===================================================================================
+	//====================================================
+	// CHANGE CHARACTER
+	//====================================================
 
-	/**
-	 * Reads a .zip file into a map of entries.
-	 */
-	function readZip(path:String):Map<String, Bytes> {
-		var assets = new Map<String, Bytes>();
-
-		if (!FileSystem.exists(path)) {
-			return assets;
-		}
-
-		var bytes = File.getBytes(path);
-		var input = new BytesInput(bytes);
-		var reader = new Reader(input);
-
-		for (entry in reader.read()) {
-			var name = entry.fileName;
-			var data = entry.data;
-
-			if (data != null)
-				assets.set(name, data);
-		}
-		return assets;
-	}
-
-	/**
-	 * Loads ZIP-based Animate data.json + symbols/*.png
-	 */
-	function loadZipAtlas(imageName:String) {
-		isZipAtlas = false;
-		zipSymbols = new Map();
-		zipAnimations = new Map();
-		zipFPS = new Map();
-		zipLoop = new Map();
-		zipOffsets = new Map();
-
-		#if flxanimate
-		// Prepare our atlas object (Psych Engine's version)
-		atlas = new FlxAnimate();
-		atlas.showPivot = false;
-		#end
-
-		var zipPath = Paths.modImages(imageName + ".zip");
-		if (!FileSystem.exists(zipPath)) {
-			// Not a zip atlas
-			return;
-		}
-
-		var entries = readZip(zipPath);
-		if (entries.keys().length == 0)
-			return;
-
-		// must contain data.json
-		if (!entries.exists("data.json"))
-			return;
-
-		// Parse data.json
-		var dataStr = entries.get("data.json").toString();
-		var json:Dynamic = null;
-		try {
-			json = Json.parse(dataStr);
-		} catch (e) {
-			trace("ERROR parsing data.json in ZIP: " + e);
-			return;
-		}
-
-		// symbols table (id → path)
-		if (json.symbols != null) {
-			for (sym in json.symbols) {
-				if (sym.type == 0) // bitmap symbol
-				{
-					var idStr = Std.string(sym.id);
-					var path:String = sym.path;
-					if (path != null && entries.exists(path)) {
-						var bmpBytes = entries.get(path);
-						var bd = BitmapData.fromBytes(bmpBytes);
-						zipSymbols.set(idStr, bd);
-					}
-				}
-			}
-		}
-
-		// assets define animation timelines
-		if (json.assets != null) {
-			zipSymbolCount = 0;
-
-			for (asset in json.assets) {
-				var file:String = asset.file;
-				var className:String = asset.className; // typically "idle", "singLEFT", etc.
-				var symbols = asset.symbols;
-
-				if (symbols == null || className == null)
-					continue;
-
-				// The animation timeline is stored inside asset.symbols
-				// They represent one MovieClip timeline
-				for (mc in symbols) {
-					var mcId = Std.string(mc.id);
-					var mcFrames = mc.frames;
-
-					if (mcFrames == null)
-						continue;
-
-					var frameList:Array<Int> = [];
-					var fps:Int = (mc.frameRate != null ? mc.frameRate : 24);
-					var loop:Bool = (mc.loop != null ? mc.loop : true);
-
-					// Parse frames sequence
-					for (fr in mcFrames) {
-						// Each frame has an array of "objects"
-						// objects[].symbol resolves to a bitmap symbol ID
-						if (fr.objects != null && fr.objects.length > 0) {
-							var obj = fr.objects[0];
-							var symbolId = Std.string(obj.symbol);
-							frameList.push(Std.parseInt(symbolId));
-						}
-					}
-
-					zipAnimations.set(className, frameList);
-					zipFPS.set(className, fps);
-					zipLoop.set(className, loop);
-
-					zipSymbolCount++;
-				}
-			}
-		}
-
-		isZipAtlas = true;
-	}
-
-	// ===================================================================================
-	// CHARACTER JSON + ATLAS FALLBACKS
-	// ===================================================================================
-
-	public function loadCharacterFile(json:Dynamic) {
-		// -------------------------------------
-		// Reset previous data
-		// -------------------------------------
-		isZipAtlas = false;
-		#if flxanimate
-		atlas = null;
-		#end
-		frames = null;
-		zipSymbols = new Map();
-		zipAnimations = new Map();
-		zipFPS = new Map();
-		zipLoop = new Map();
-		zipOffsets = new Map();
-
+	public function changeCharacter(character:String):Void
+	{
 		animationsArray = [];
-		animOffsets = new Map<String, Array<Float>>();
+		animOffsets = new Map();
 
-		// -------------------------------------
-		// Parse JSON core
-		// -------------------------------------
+		curCharacter = character;
+
+		var jsonPath:String = 'characters/$character.json';
+		var path:String = Paths.getPath(jsonPath, TEXT);
+
+		#if MODS_ALLOWED
+		if (!FileSystem.exists(path))
+		#else
+		if (!Assets.exists(path))
+		#end
+		{
+			path = Paths.getSharedPath('characters/' + DEFAULT_CHARACTER + '.json');
+			missingCharacter = true;
+
+			missingText = new FlxText(0, 0, 300, 'ERROR:\n$character.json', 16);
+			missingText.alignment = CENTER;
+		}
+
+		try
+		{
+			#if MODS_ALLOWED
+			loadCharacterFile(Json.parse(File.getContent(path)));
+			#else
+			loadCharacterFile(Json.parse(Assets.getText(path)));
+			#end
+		}
+		catch (e:Dynamic)
+		{
+			trace('Error loading character file "$character": $e');
+		}
+
+		skipDance = false;
+		danceIdle = (hasAnimation('danceLeft') && hasAnimation('danceRight'));
+		danced = false;
+
+		dance();
+	}
+
+	//====================================================
+	// LOAD CHARACTER JSON
+	//====================================================
+
+	public function loadCharacterFile(json:Dynamic):Void
+	{
+		// Reset
+		isZip = false;
+		zipIsAnimate = false;
+		zipIsSpritesheet = false;
+		zipSymbols = [];
+		zipFrames = new Map();
+		animateMap = new Map();
+		zipSpritesheetPNG = null;
+		zipSpritesheetXML = null;
+
+		isAnimateAtlas = false;
+
 		imageFile = json.image;
 		jsonScale = json.scale;
-		if (json.scale != 1) {
-			scale.set(jsonScale, jsonScale);
-			updateHitbox();
+
+		//--------------------------------------------------
+		// 1. ZIP
+		//--------------------------------------------------
+		var zipPath = Paths.getPath('images/${imageFile}.zip', TEXT);
+
+		#if MODS_ALLOWED
+		var hasZip = FileSystem.exists(zipPath);
+		#else
+		var hasZip = Assets.exists(zipPath);
+		#end
+
+		if (hasZip)
+		{
+			isZip = true;
+			loadZIP(zipPath);
 		}
+
+		//--------------------------------------------------
+		// 2. Animate Atlas
+		//--------------------------------------------------
+		#if flxanimate
+		if (!isZip)
+		{
+			var animJSON = Paths.getPath('images/' + imageFile + '/Animation.json', TEXT);
+			var foundAnim = #if MODS_ALLOWED FileSystem.exists(animJSON) #else Assets.exists(animJSON) #end;
+
+			if (foundAnim)
+			{
+				isAnimateAtlas = true;
+				loadAnimateAtlas(json.image);
+			}
+		}
+		#end
+
+		//--------------------------------------------------
+		// 3. MultiAtlas
+		//--------------------------------------------------
+		if (!isZip && !isAnimateAtlas)
+		{
+			loadPNGXMLOrMultiAtlas(json.image);
+		}
+
+		//--------------------------------------------------
+		// Apply core fields
+		//--------------------------------------------------
+		scale.set(jsonScale, jsonScale);
+		updateHitbox();
 
 		positionArray = json.position;
 		cameraPosition = json.camera_position;
+
 		healthIcon = json.healthicon;
 		singDuration = json.sing_duration;
-		flipX = (json.flip_x != isPlayer);
-		healthColorArray = (json.healthbar_colors != null && json.healthbar_colors.length > 2) ? json.healthbar_colors : [161, 161, 161];
-		vocalsFile = (json.vocals_file != null ? json.vocals_file : "");
-		originalFlipX = (json.flip_x == true);
-		editorIsPlayer = json._editor_isPlayer;
+		vocalsFile = json.vocals_file != null ? json.vocals_file : '';
+		healthColorArray = json.healthbar_colors != null ? json.healthbar_colors : [161,161,161];
 
-		noAntialiasing = (json.no_antialiasing == true);
+		noAntialiasing = json.no_antialiasing == true;
 		antialiasing = ClientPrefs.data.antialiasing ? !noAntialiasing : false;
 
+		originalFlipX = json.flip_x;
+		editorIsPlayer = json._editor_isPlayer;
+		flipX = (json.flip_x != isPlayer);
+
+		//--------------------------------------------------
+		// Load animations
+		//--------------------------------------------------
 		animationsArray = json.animations;
 
-		// ===================================================================================
-		// 1) ZIP ATLAS ATTEMPT FIRST
-		// ===================================================================================
-		loadZipAtlas(imageFile);
-
-		if (!isZipAtlas) {
-			// ===================================================================================
-			// 2) REGULAR MULTI-ATLAS / SPARROW FALLBACK
-			// ===================================================================================
-			frames = Paths.getMultiAtlas(imageFile.split(","));
-		}
-
-		// ===================================================================================
-		// Register animations for whichever system is active
-		// ===================================================================================
-		if (isZipAtlas) {
-			// ----------------------------------------------------------
-			// ZIP/ANIMATE MODE: JSON "animations" drives the timeline
-			// ----------------------------------------------------------
-			for (anim in animationsArray) {
-				var key:String = anim.anim;
-				var xmlName:String = anim.name;
-				var fps:Int = anim.fps;
-				var loop:Bool = anim.loop;
-				var indices = anim.indices;
-
-				// Use ZIP frames if animation exists
-				if (zipAnimations.exists(key)) {
-					// Accept indices override if provided
-					if (indices != null && indices.length > 0) {
-						zipAnimations.set(key);
-					}
-					zipFPS.set(key, fps);
-					zipLoop.set(key, loop);
-				}
-
-				// Offsets
-				if (anim.offsets != null && anim.offsets.length >= 2)
-					animOffsets.set(key, [anim.offsets[0], anim.offsets[1]]);
-				else
-					animOffsets.set(key, [0, 0]);
-			}
-		} else {
-			// ----------------------------------------------------------
-			// VANILLA MULTI-ATLAS MODE
-			// ----------------------------------------------------------
-			for (anim in animationsArray) {
-				var key = anim.anim;
-				var name = anim.name;
-				var fps = anim.fps;
-				var loop = anim.loop;
-
+		for (anim in animationsArray)
+		{
+			if (!isZip && !isAnimateAtlas)
+			{
 				if (anim.indices != null && anim.indices.length > 0)
-					animation.addByIndices(key, name, anim.indices, "", fps, loop);
+					animation.addByIndices(anim.anim, anim.name, anim.indices, "", anim.fps, anim.loop);
 				else
-					animation.addByPrefix(key, name, fps, loop);
-
-				if (anim.offsets != null && anim.offsets.length >= 2)
-					animOffsets.set(key, [anim.offsets[0], anim.offsets[1]]);
-				else
-					animOffsets.set(key, [0, 0]);
+					animation.addByPrefix(anim.anim, anim.name, anim.fps, anim.loop);
 			}
-		}
 
-		// ZIP OFFSET Safety: if any animation exists without offsets, assign zeros
-		if (isZipAtlas) {
-			for (animKey in zipAnimations.keys()) {
-				if (!animOffsets.exists(animKey))
-					animOffsets.set(animKey, [0, 0]);
-			}
-		}
-
-		// After finishing animation registration, prepare drawing
-		if (isZipAtlas) {
 			#if flxanimate
-			setupZipAtlasDisplay();
+			if (isAnimateAtlas)
+			{
+				if (anim.indices != null && anim.indices.length > 0)
+					atlas.anim.addBySymbolIndices(anim.anim, anim.name, anim.indices, anim.fps, anim.loop);
+				else
+					atlas.anim.addBySymbol(anim.anim, anim.name, anim.fps, anim.loop);
+			}
 			#end
-		}
-	}
 
-	// ===================================================================================
-	// ZIP → FlxAnimate DISPLAY INITIALIZATION (stub; finished in Part 4)
-	// ===================================================================================
-	#if flxanimate
-	function setupZipAtlasDisplay() {
-		if (atlas == null)
-			return;
-
-		// Set base properties
-		atlas.antialiasing = antialiasing;
-
-		x = x; // no-op to keep consistent
-		y = y;
-
-		atlas.x = this.x;
-		atlas.y = this.y;
-		atlas.scale.copyFrom(this.scale);
-		atlas.angle = this.angle;
-
-		// Actual frame step/draw implemented in Part 4
-	}
-	#end
-
-	// ===================================================================================
-	// ZIP ANIMATION PLAYBACK SYSTEM
-	// Psych Engine 1.0.4 compatible
-	// No BitmapData API, no unsupported FlxAnimate functions
-	// Uses frame-based PNG stamping into a temp FlxSprite
-	// ===================================================================================
-	var zipAnim:String = "";
-	var zipFrame:Int = 0;
-	var zipTime:Float = 0;
-	var zipFPS:Int = 24;
-	var zipLoopFlag:Bool = true;
-	var zipPlaying:Bool = false;
-
-	// symbol PNG cache for drawing
-	var zipFrameCache:Map<String, Map<Int, FlxSprite>> = new Map(); // symbol → frame → sprite
-
-	// -------------------------------------------------------------------------
-	// Retrieve a single ZIP symbol frame (as FlxSprite) — NO BitmapData
-	// -------------------------------------------------------------------------
-	function getZipFrame(symbol:String, frame:Int):FlxSprite {
-		if (!zipSymbols.exists(symbol))
-			return null;
-		var all = zipSymbols.get(symbol);
-		if (frame < 0 || frame >= all.length)
-			return null;
-
-		// CACHE
-		if (!zipFrameCache.exists(symbol))
-			zipFrameCache.set(symbol, new Map());
-
-		if (zipFrameCache.get(symbol).exists(frame))
-			return zipFrameCache.get(symbol).get(frame);
-
-		// Create sprite
-		var spr = new FlxSprite();
-		spr.loadGraphic(all[frame]);
-		spr.antialiasing = antialiasing;
-
-		zipFrameCache.get(symbol).set(frame, spr);
-		return spr;
-	}
-
-	// Total frames for symbol
-	function getZipFrameCount(symbol:String):Int {
-		return zipSymbols.exists(symbol) ? zipSymbols.get(symbol).length : 0;
-	}
-
-	// ===================================================================================
-	// PLAY ANIMATION (ZIP overrides default system)
-	// ===================================================================================
-	override public function playAnim(name:String, Force:Bool = false, Reversed:Bool = false, Frame:Int = 0) {
-		// -------------------------------------------------------------------------
-		// ZIP MODE
-		// -------------------------------------------------------------------------
-		if (isZipAtlas) {
-			if (!zipAnimations.exists(name)) {
-				// fall back to default animations if missing
-				super.playAnim(name, Force, Reversed, Frame);
-				zipPlaying = false;
-				_lastPlayedAnimation = name;
-				return;
-			}
-
-			zipAnim = name;
-			_lastPlayedAnimation = name;
-
-			zipFPS = 24;
-			if (zipFPS.exists(name))
-				zipFPS = zipFPS.get(name);
-
-			zipLoopFlag = zipLoop.exists(name) ? zipLoop.get(name) : true;
-
-			zipFrame = Frame;
-			zipTime = 0;
-			zipPlaying = true;
-
-			// Offsets
-			if (animOffsets.exists(name)) {
-				var arr = animOffsets.get(name);
-				offset.set(arr[0], arr[1]);
-			} else
-				offset.set(0, 0);
-
-			return;
+			if (anim.offsets != null && anim.offsets.length > 1)
+				addOffset(anim.anim, anim.offsets[0], anim.offsets[1]);
+			else
+				addOffset(anim.anim, 0, 0);
 		}
 
-		// -------------------------------------------------------------------------
-		// Vanilla mode
-		// -------------------------------------------------------------------------
-		super.playAnim(name, Force, Reversed, Frame);
-		_lastPlayedAnimation = name;
-
-		if (animOffsets.exists(name)) {
-			var arr = animOffsets.get(name);
-			offset.set(arr[0], arr[1]);
-		} else
-			offset.set(0, 0);
+		danceIdle = (hasAnimation('danceLeft') && hasAnimation('danceRight'));
 	}
 
-	// ===================================================================================
-	// IS ANIMATION FINISHED
-	// ===================================================================================
-	public override function isAnimationFinished():Bool {
-		if (isZipAtlas) {
-			if (!zipPlaying)
-				return true;
+	//====================================================
+	// UPDATE
+	//====================================================
 
-			var frames = zipAnimations.get(zipAnim);
-			return zipFrame >= frames.length - 1 && !zipLoopFlag;
-		} else
-			return super.isAnimationFinished();
-	}
+	override function update(elapsed:Float)
+	{
+		#if flxanimate
+		if (isAnimateAtlas) atlas.update(elapsed);
+		#end
 
-	// ===================================================================================
-	// IS ANIMATION NULL
-	// ===================================================================================
-	public override function isAnimationNull():Bool {
-		if (isZipAtlas)
-			return (zipAnim == "" || !zipPlaying);
-		return super.isAnimationNull();
-	}
-
-	// ===================================================================================
-	// UPDATE — frame stepping for ZIP
-	// ===================================================================================
-	override public function update(elapsed:Float) {
-		if (isZipAtlas) {
-			if (zipPlaying) {
-				zipTime += elapsed;
-				var spf:Float = 1.0 / zipFPS;
-
-				while (zipTime >= spf) {
-					zipTime -= spf;
-					zipFrame++;
-
-					var totalFrames = zipAnimations.get(zipAnim).length;
-
-					if (zipFrame >= totalFrames) {
-						if (zipLoopFlag)
-							zipFrame = 0;
-						else {
-							zipFrame = totalFrames - 1;
-							zipPlaying = false;
-						}
-					}
-				}
-			}
-
+		if (debugMode || isAnimationNull())
+		{
 			super.update(elapsed);
 			return;
 		}
 
-		super.update(elapsed);
-	}
+		// Hey timer
+		if (heyTimer > 0)
+		{
+			var rate:Float = (PlayState.instance != null ? PlayState.instance.playbackRate : 1.0);
+			heyTimer -= elapsed * rate;
 
-	// ===================================================================================
-	// DRAW — ZIP rendering: stamp PNG frame into screen-space sprite
-	// ===================================================================================
-	override public function draw() {
-		if (!isZipAtlas) {
-			super.draw();
-			return;
+			if (heyTimer <= 0)
+			{
+				var name = getAnimationName();
+				if (specialAnim && (name == "hey" || name == "cheer"))
+				{
+					specialAnim = false;
+					dance();
+				}
+				heyTimer = 0;
+			}
 		}
-
-		// ZIP SYMBOL DRAWING
-		if (zipAnim == "" || !zipAnimations.exists(zipAnim)) {
-			super.draw();
-			return;
+		else if (specialAnim && isAnimationFinished())
+		{
+			specialAnim = false;
+			dance();
 		}
-
-		var frames = zipAnimations.get(zipAnim);
-		var symbol = Std.string(frames[zipFrame]);
-		var spr = getZipFrame(symbol, zipFrame);
-
-		if (spr == null) {
-			super.draw();
-			return;
-		}
-
-		// Position/scale copied from self
-		spr.x = this.x;
-		spr.y = this.y;
-		spr.scale.copyFrom(this.scale);
-		spr.offset.copyFrom(this.offset);
-		spr.angle = this.angle;
-		spr.antialiasing = this.antialiasing;
-		spr.cameras = this.cameras;
-
-		spr.draw();
-	}
-
-	// ===================================================================================
-	// DANCING, IDLES, HOLDTIMERS, MISS ANIMS, SPECIAL ANIMS
-	// Psych Engine accurate behavior
-	// ===================================================================================
-	public var holdTimer:Float = 0;
-	public var heyTimer:Float = 0;
-	public var stunned:Bool = false;
-
-	public var idleSuffix:String = "";
-	public var danceIdle:Bool = false;
-	public var skipDance:Bool = false;
-	public var specialAnim:Bool = false;
-	public var danced:Bool = false;
-
-	public var hasMissAnimations:Bool = false;
-	public var danceEveryNumBeats:Int = 1;
-
-	var settingCharacterUp:Bool = true;
-
-	// ===================================================================================
-	// DANCE
-	// ===================================================================================
-	public function dance() {
-		if (debugMode || skipDance || specialAnim)
-			return;
-
-		if (danceIdle) {
-			// GF head-bopping
-			danced = !danced;
-
-			if (danced)
-				playAnim("danceRight" + idleSuffix);
-			else
-				playAnim("danceLeft" + idleSuffix);
-		} else {
-			if (hasAnimation("idle" + idleSuffix))
-				playAnim("idle" + idleSuffix);
-		}
-	}
-
-	// ===================================================================================
-	// RECALCULATE DANCE IDLE
-	// ===================================================================================
-	public function recalculateDanceIdle() {
-		var last = danceIdle;
-		danceIdle = (hasAnimation("danceLeft" + idleSuffix) && hasAnimation("danceRight" + idleSuffix));
-
-		if (settingCharacterUp) {
-			danceEveryNumBeats = danceIdle ? 1 : 2;
-		} else if (last != danceIdle) {
-			var calc = danceEveryNumBeats;
-			if (danceIdle)
-				calc /= 2;
-			else
-				calc *= 2;
-
-			danceEveryNumBeats = Std.int(Math.max(calc, 1));
-		}
-
-		settingCharacterUp = false;
-	}
-
-	// ===================================================================================
-	// HAS ANIMATION
-	// ===================================================================================
-	public function hasAnimation(anim:String):Bool {
-		if (isZipAtlas)
-			return zipAnimations.exists(anim);
-		return animOffsets.exists(anim);
-	}
-
-	// ===================================================================================
-	// UPDATE — dancing, missing anim fixes, special anim cleanup
-	// ===================================================================================
-	override public function update(elapsed:Float) {
-		// ZIP mode pre-step
-		if (isZipAtlas) {
-			super.update(elapsed); // allows frame stepping from Part 4
-			updateCharacterLogic(elapsed);
-			return;
-		}
-
-		super.update(elapsed);
-		updateCharacterLogic(elapsed);
-	}
-
-	// ===================================================================================
-	// CORE LOGIC — separated so both ZIP and non-ZIP share the same behavior
-	// ===================================================================================
-	function updateCharacterLogic(elapsed:Float) {
-		if (isAnimationNull())
-			return;
-
-		// ==============================================================
-		// MISS FINISHED → Return to Idle
-		// ==============================================================
-		if (getAnimationName().endsWith("miss") && isAnimationFinished()) {
+		else if (getAnimationName().endsWith("miss") && isAnimationFinished())
+		{
 			dance();
 			finishAnimation();
 		}
 
-		// ==============================================================
-		// Special animations: hey/cheer
-		// ==============================================================
-		if (heyTimer > 0) {
-			var rate:Float = (PlayState.instance != null ? PlayState.instance.playbackRate : 1.0);
-			heyTimer -= elapsed * rate;
+		// Pico-speaker
+		switch(curCharacter)
+		{
+			case "pico-speaker":
+				if(animationNotes.length > 0 && Conductor.songPosition > animationNotes[0][0])
+				{
+					var nd:Int = (animationNotes[0][1] > 2) ? 3 : 1;
+					nd += FlxG.random.int(0, 1);
 
-			if (heyTimer <= 0) {
-				if (specialAnim && (getAnimationName() == "hey" || getAnimationName() == "cheer"))
-					dance();
+					playAnim("shoot" + nd, true);
+					animationNotes.shift();
+				}
 
-				specialAnim = false;
-				heyTimer = 0;
-			}
-		} else if (specialAnim && isAnimationFinished()) {
-			specialAnim = false;
-			dance();
-		}
-
-		// ==============================================================
-		// Speaker logic (Pico-speaker)
-		// ==============================================================
-		if (curCharacter == "pico-speaker") {
-			if (animationNotes.length > 0 && Conductor.songPosition > animationNotes[0][0]) {
-				var n = 1;
-				if (animationNotes[0][1] > 2)
-					n = 3;
-
-				n += FlxG.random.int(0, 1);
-				playAnim("shoot" + n, true);
-				animationNotes.shift();
-			}
-
-			if (!isZipAtlas) {
 				if (isAnimationFinished())
 					playAnim(getAnimationName(), false, false, animation.curAnim.frames.length - 3);
+		}
+
+		// Hold logic
+		if (getAnimationName().startsWith("sing"))
+			holdTimer += elapsed;
+		else if (isPlayer)
+			holdTimer = 0;
+
+		if (!isPlayer)
+		{
+			var limit = Conductor.stepCrochet * 0.0011;
+			#if FLX_PITCH
+			if (FlxG.sound.music != null)
+				limit /= FlxG.sound.music.pitch;
+			#end
+
+			if (holdTimer >= limit * singDuration)
+			{
+				dance();
+				holdTimer = 0;
 			}
 		}
 
-		// ==============================================================
-		// Hold timer (for singing)
-		// ==============================================================
-		if (getAnimationName().startsWith("sing")) {
-			holdTimer += elapsed;
-		} else if (isPlayer) {
-			holdTimer = 0;
-		}
-
-		if (!isPlayer
-			&& holdTimer >= Conductor.stepCrochet * (0.0011 #if FLX_PITCH / (FlxG.sound.music != null ? FlxG.sound.music.pitch : 1) #end) * singDuration) {
-			dance();
-			holdTimer = 0;
-		}
-
-		// ==============================================================
-		// LOOP animations like "idle-loop"
-		// ==============================================================
-		var name = getAnimationName();
-		if (isAnimationFinished() && hasAnimation(name + "-loop"))
-			playAnim(name + "-loop");
+		super.update(elapsed);
 	}
 
-	// ===================================================================================
-	// JSON SAVE (for Character Editor)
-	// ===================================================================================
-
-	public function buildEditorJson():Dynamic {
-		var out:Dynamic = {
-			name: curCharacter,
-			image: imageFile,
-			scale: jsonScale,
-			sing_duration: singDuration,
-			flip_x: originalFlipX,
-			no_antialiasing: noAntialiasing,
-			position: positionArray,
-			camera_position: cameraPosition,
-			healthicon: healthIcon,
-			healthbar_colors: healthColorArray,
-			vocals_file: vocalsFile,
-			_editor_isPlayer: editorIsPlayer,
-			animations: []
-		};
-
-		for (anim in animationsArray) {
-			out.animations.push({
-				anim: anim.anim,
-				name: anim.name,
-				fps: anim.fps,
-				loop: anim.loop,
-				indices: anim.indices,
-				offsets: anim.offsets
-			});
-		}
-
-		return out;
-	}
-
-	// ===================================================================================
-	// ZIP CLEANUP
-	// ===================================================================================
-
-	function clearZipCache() {
-		if (!isZipAtlas)
-			return;
-
-		zipAnimations = new Map();
-		zipSymbols = new Map();
-		zipOffsets = new Map();
-		zipFPS = new Map();
-		zipLoop = new Map();
-		zipFrameCache = new Map();
-
-		zipAnim = "";
-		zipFrame = 0;
-		zipTime = 0;
-		zipFPS = 24;
-		zipLoopFlag = true;
-		zipPlaying = false;
-
-		isZipAtlas = false;
-	}
-
-	// ===================================================================================
-	// DESTROY
-	// ===================================================================================
-
-	override public function destroy() {
-		clearZipCache();
-
+	inline public function isAnimationNull():Bool
+	{
 		#if flxanimate
-		atlas = null;
+		if (isAnimateAtlas)
+			return atlas.anim.curInstance == null || atlas.anim.curSymbol == null;
 		#end
 
-		animOffsets = null;
-		animationsArray = null;
-		animationNotes = null;
-
-		super.destroy();
+		return animation.curAnim == null;
 	}
 
-	// ===================================================================================
-	// CHARACTER END
-	// ===================================================================================
+	inline public function getAnimationName():String
+	{
+		return _lastPlayedAnimation;
+	}
+
+	public function isAnimationFinished():Bool
+	{
+		if (isAnimationNull()) return false;
+
+		#if flxanimate
+		if (isAnimateAtlas)
+			return atlas.anim.finished;
+		#end
+
+		return animation.curAnim.finished;
+	}
+
+	public function finishAnimation():Void
+	{
+		if (isAnimationNull()) return;
+
+		#if flxanimate
+		if (isAnimateAtlas)
+		{
+			atlas.anim.curFrame = atlas.anim.length - 1;
+			return;
+		}
+		#end
+
+		animation.curAnim.finish();
+	}
+
+	public function hasAnimation(anim:String):Bool
+	{
+		return animOffsets.exists(anim);
+	}
+
+	//====================================================
+	// animPaused property
+	//====================================================
+
+	public var animPaused(get, set):Bool;
+
+	private function get_animPaused():Bool
+	{
+		if (isAnimationNull()) return false;
+
+		#if flxanimate
+		if (isAnimateAtlas) return !atlas.anim.isPlaying;
+		#end
+
+		return animation.curAnim.paused;
+	}
+
+	private function set_animPaused(v:Bool):Bool
+	{
+		if (isAnimationNull()) return v;
+
+		#if flxanimate
+		if (isAnimateAtlas)
+		{
+			if (v) atlas.pauseAnimation(); else atlas.resumeAnimation();
+			return v;
+		}
+		#end
+
+		animation.curAnim.paused = v;
+		return v;
+	}
+
+	//====================================================
+	// DANCE
+	//====================================================
+
+	public function dance()
+	{
+		if (!debugMode && !skipDance && !specialAnim)
+		{
+			if (danceIdle)
+			{
+				danced = !danced;
+				playAnim((danced ? 'danceRight' : 'danceLeft') + idleSuffix);
+			}
+			else if (hasAnimation('idle' + idleSuffix))
+				playAnim('idle' + idleSuffix);
+		}
+	}
+
+	//====================================================
+	// PLAY ANIMATION
+	//====================================================
+
+	public function playAnim(name:String, Force:Bool = false, Reversed:Bool = false, Frame:Int = 0):Void
+	{
+		specialAnim = false;
+
+		#if flxanimate
+		if (isAnimateAtlas)
+		{
+			atlas.anim.play(name, Force, Reversed, Frame);
+			atlas.update(0);
+		}
+		else
+		#end
+		{
+			animation.play(name, Force, Reversed, Frame);
+		}
+
+		_lastPlayedAnimation = name;
+
+		if (hasAnimation(name))
+		{
+			var off = animOffsets.get(name);
+			offset.set(off[0], off[1]);
+		}
+
+		if (curCharacter.startsWith("gf-") || curCharacter == "gf")
+		{
+			if (name == "singLEFT") danced = true;
+			else if (name == "singRIGHT") danced = false;
+			else if (name == "singUP" || name == "singDOWN") danced = !danced;
+		}
+	}
+
+	//====================================================
+	// OFFSET
+	//====================================================
+
+	public function addOffset(name:String, x:Float = 0, y:Float = 0)
+	{
+		animOffsets.set(name, [x, y]);
+	}
+
+	//====================================================
+	// LOAD MAPPED ANIMS (PICO SPEAKER)
+	//====================================================
+
+	function loadMappedAnims():Void
+	{
+		try {
+			var songData:SwagSong = Song.getChart('picospeaker',
+				Paths.formatToSongPath(Song.loadedSongName));
+			if (songData != null)
+			{
+				for (section in songData.notes)
+					for (sn in section.sectionNotes)
+						animationNotes.push(sn);
+			}
+
+			TankmenBG.animationNotes = animationNotes;
+			animationNotes.sort(sortAnims);
+		}
+		catch (e:Dynamic) {}
+	}
+
+	function sortAnims(a:Array<Dynamic>, b:Array<Dynamic>):Int
+	{
+		if (a[0] < b[0]) return -1;
+		if (a[0] > b[0]) return 1;
+		return 0;
+	}
+
+	//====================================================
+	// MultiAtlas Loader
+	//====================================================
+
+	private function loadPNGXMLOrMultiAtlas(image:String):Void
+	{
+		frames = Paths.getMultiAtlas(image.split(","));
+	}
+
+	//====================================================
+	// Animate Atlas
+	//====================================================
+
+	#if flxanimate
+	private function loadAnimateAtlas(image:String):Void
+	{
+		atlas = new FlxAnimate();
+		atlas.showPivot = false;
+
+		try Paths.loadAnimateAtlas(atlas, image)
+		catch (e:Dynamic)
+			FlxG.log.warn('Could not load Animate atlas: $image -> $e');
+	}
+	#end
+
+	//====================================================
+	// ZIP LOADING
+	//====================================================
+
+	public function loadZIP(path:String):Void
+	{
+		var bytes:Bytes = #if MODS_ALLOWED File.getBytes(path) #else Assets.getBytes(path) #end;
+		var reader = new Reader(new BytesInput(bytes));
+		var entries:Array<Entry> = reader.read();
+
+		var animateData:String = null;
+		var libraryData:String = null;
+		var spritePNG:Bytes = null;
+		var spriteXML:String = null;
+
+		zipLibrary = null;
+		zipData = null;
+
+		for (en in entries)
+		{
+			var fn = en.fileName;
+
+			if (fn == "data.json") animateData = en.getContent().toString();
+			if (fn == "library.json") libraryData = en.getContent().toString();
+
+			if (StringTools.startsWith(fn, "symbols/") && StringTools.endsWith(fn, ".png"))
+			{
+				var name = fn.substring(8, fn.length - 4);
+				var bytes = en.getContent();
+				var bmp = BitmapData.fromBytes(bytes);
+
+				if (!zipSymbols.contains(name))
+					zipSymbols.push(name);
+
+				if (!zipFrames.exists(name))
+					zipFrames.set(name, []);
+
+				zipFrames.get(name).push(bmp);
+			}
+
+			if (fn == "spritemap.png")
+				spritePNG = en.getContent();
+
+			if (fn == "spritemap.xml" || fn == "spritesheet.xml")
+				spriteXML = en.getContent().toString();
+		}
+
+		if (animateData != null)
+		{
+			zipIsAnimate = true;
+			zipData = Json.parse(animateData);
+
+			if (libraryData != null)
+				zipLibrary = Json.parse(libraryData);
+
+			loadAnimateZIP();
+			return;
+		}
+
+		if (spritePNG != null && spriteXML != null)
+		{
+			zipIsSpritesheet = true;
+			loadSpritesheetZIP(spritePNG, spriteXML);
+			return;
+		}
+
+		isZip = false;
+	}
+
+	private function loadAnimateZIP():Void
+	{
+		frames = null;
+		animateMap = new Map();
+
+		if (zipData.animations != null)
+		{
+			for (field in Reflect.fields(zipData.animations))
+			{
+				var arr:Array<Int> = [];
+				var obj = Reflect.field(zipData.animations, field);
+
+				if (obj.frames != null)
+					for (f in obj.frames) arr.push(f);
+
+				animateMap.set(field, arr);
+			}
+		}
+	}
+
+	private function loadSpritesheetZIP(png:Bytes, xml:String):Void
+	{
+		var bmp = BitmapData.fromBytes(png);
+		frames = FlxAtlasFrames.fromSparrow(bmp, xml);
+	}
+
+	//====================================================
+	// ANIMATE ZIP DRAW HELPERS
+	//====================================================
+
+	private function getSymbolMatrix(symbol:String, frame:Int):Matrix
+	{
+		if (zipLibrary == null) return null;
+		if (!Reflect.hasField(zipLibrary.symbols, symbol)) return null;
+
+		var sym = Reflect.field(zipLibrary.symbols, symbol);
+
+		if (!Reflect.hasField(sym, "timeline")) return null;
+
+		var layers = sym.timeline.layers;
+		if (layers == null || layers.length == 0) return null;
+
+		var layer = layers[0];
+		var framesArr = layer.frames;
+
+		if (frame < 0 || frame >= framesArr.length)
+			frame = framesArr.length - 1;
+
+		var frameData = framesArr[frame];
+		if (frameData == null || frameData.elements == null || frameData.elements.length == 0)
+			return null;
+
+		var elem = frameData.elements[0];
+		if (elem == null || elem.matrix == null) return null;
+
+		var m = new Matrix();
+		m.a  = elem.matrix[0];
+		m.b  = elem.matrix[1];
+		m.c  = elem.matrix[2];
+		m.d  = elem.matrix[3];
+		m.tx = elem.matrix[4];
+		m.ty = elem.matrix[5];
+
+		return m;
+	}
+
+	private function getFrame():Int
+	{
+		return _zipFrame;
+	}
+
+	private function getZipBitmap(anim:String, frame:Int):BitmapData
+	{
+		if (!zipFrames.exists(anim)) return null;
+		var arr = zipFrames.get(anim);
+		if (arr.length == 0) return null;
+
+		if (frame < 0) frame = 0;
+		if (frame >= arr.length) frame = arr.length - 1;
+
+		return arr[frame];
+	}
+
+	//====================================================
+	// DRAW OVERRIDE
+	//====================================================
+
+	override public function draw()
+	{
+		var lastAlpha = alpha;
+		var lastColor = color;
+
+		// Animate Atlas
+		#if flxanimate
+		if (isAnimateAtlas)
+		{
+			if (atlas.anim.curInstance != null)
+			{
+				copyAtlasValues();
+				atlas.draw();
+			}
+
+			alpha = lastAlpha;
+			color = lastColor;
+
+			if (missingCharacter && visible)
+			{
+				missingText.x = getMidpoint().x - 150;
+				missingText.y = getMidpoint().y - 10;
+				missingText.draw();
+			}
+
+			return;
+		}
+		#end
+
+		if (!isZip || zipIsSpritesheet)
+		{
+			super.draw();
+
+			if (missingCharacter && visible)
+			{
+				alpha = lastAlpha;
+				color = lastColor;
+				missingText.x = getMidpoint().x - 150;
+				missingText.y = getMidpoint().y - 10;
+				missingText.draw();
+			}
+
+			return;
+		}
+
+		// ZIP ANIMATE MODE
+		var anim = getAnimationName();
+		var frame = getFrame();
+		var bmp = getZipBitmap(anim, frame);
+
+		if (bmp == null)
+		{
+			super.draw();
+			return;
+		}
+
+		var mat = getSymbolMatrix(anim, frame);
+		var m = new Matrix();
+
+		if (mat != null) m.concat(mat);
+
+		m.scale(scale.x, scale.y);
+		m.translate(x - offset.x, y - offset.y);
+
+		FlxG.camera.buffer.draw(bmp, m, colorTransform);
+
+		alpha = lastAlpha;
+		color = lastColor;
+	}
+
+	//====================================================
+	// COPY ATLAS VALUES
+	//====================================================
+
+	public function copyAtlasValues()
+	{
+		#if flxanimate
+		@:privateAccess
+		{
+			atlas.cameras = cameras;
+			atlas.scrollFactor = scrollFactor;
+			atlas.scale = scale;
+			atlas.offset = offset;
+			atlas.origin = origin;
+			atlas.x = x;
+			atlas.y = y;
+			atlas.angle = angle;
+			atlas.alpha = alpha;
+			atlas.visible = visible;
+			atlas.flipX = flipX;
+			atlas.flipY = flipY;
+			atlas.shader = shader;
+			atlas.antialiasing = antialiasing;
+			atlas.colorTransform = colorTransform;
+			atlas.color = color;
+		}
+		#end
+	}
+
+	#if flxanimate
+	override public function destroy()
+	{
+		atlas = FlxDestroyUtil.destroy(atlas);
+		super.destroy();
+	}
+	#end
 }
