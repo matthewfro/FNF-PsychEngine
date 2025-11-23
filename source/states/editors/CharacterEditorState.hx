@@ -27,6 +27,8 @@ import backend.ui.PsychUIButton;
 import backend.ui.PsychUIEventHandler;
 import states.editors.content.PsychJsonPrinter; // This one still exists in 1.0.4
 
+import openfl.display.BitmapData;
+
 // ZIP support
 import haxe.zip.Reader;
 import haxe.zip.Writer;
