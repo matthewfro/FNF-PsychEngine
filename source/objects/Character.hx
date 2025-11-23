@@ -16,7 +16,6 @@ import openfl.display.BitmapData;
 import openfl.geom.Matrix;
 import openfl.geom.ColorTransform;
 #if flxanimate
-import flxanimate._PsychFlxAnimate.FlxAnimate;
 import flxanimate.animate.FlxAnim;
 import flxanimate.animate.FlxSymbol;
 #end
