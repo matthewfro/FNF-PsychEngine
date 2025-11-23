@@ -7,16 +7,7 @@ import flixel.util.FlxDestroyUtil;
 
 import openfl.utils.AssetType;
 import openfl.utils.Assets;
-import openfl.display.MovieClip;
-import openfl.display.Loader;
-import openfl.utils.ByteArray;
-import openfl.events.Event;
-import openfl.display.FrameLabel;
-
 import haxe.Json;
-import sys.io.File;
-import sys.FileSystem;
-import haxe.zip.Reader;
 
 import backend.Song;
 import states.stages.objects.TankmenBG;
@@ -90,13 +81,6 @@ class Character extends FlxSprite
 	public var originalFlipX:Bool = false;
 	public var editorIsPlayer:Null<Bool> = null;
 
-	// SWF / ZIP support
-	public var isSWF:Bool = false;
-	public var swfClip:MovieClip;
-	public var swfLabels:Map<String, FrameLabel> = new Map();
-	public var isZipped:Bool = false;
-	public var zipExtractPath:String = '';
-
 	public function new(x:Float, y:Float, ?character:String = 'bf', ?isPlayer:Bool = false)
 	{
 		super(x, y);
@@ -160,81 +144,6 @@ class Character extends FlxSprite
 	public function loadCharacterFile(json:Dynamic)
 	{
 		isAnimateAtlas = false;
-         	isSWF = false;
-		isZipped = false;
-
-		// Detect formats
-		var zipPath:String = Paths.getPath('images/' + json.image + '.zip', BINARY);
-		var animZipPath:String = Paths.getPath('images/' + json.image + '.anim.zip', BINARY);
-		var swfPath:String = Paths.getPath('images/' + json.image + '.swf', BINARY);
-
-		#if MODS_ALLOWED
-		if(FileSystem.exists(animZipPath)) { isZipped = true; zipPath = animZipPath; }
-		else if(FileSystem.exists(zipPath)) { isZipped = true; }
-		else if(FileSystem.exists(swfPath)) { isSWF = true; }
-		#else
-		if(Assets.exists(animZipPath)) { isZipped = true; zipPath = animZipPath; }
-		else if(Assets.exists(zipPath)) { isZipped = true; }
-		else if(Assets.exists(swfPath)) { isSWF = true; }
-		#end
-
-		// ZIP extraction
-		if(isZipped)
-		{
-			zipExtractPath = 'mods/temp/' + json.image + '/';
-			#if MODS_ALLOWED
-			if(!FileSystem.exists(zipExtractPath))
-				FileSystem.createDirectory(zipExtractPath);
-
-			var bytes = ByteArray.fromFile(zipPath);
-			var reader = new Reader(bytes);
-			var files = reader.read();
-			for(f in files)
-			{
-				if(f.fileName != null && f.fileName.length > 0)
-				{
-					var targetPath = zipExtractPath + f.fileName;
-					var dir = targetPath.substr(0, targetPath.lastIndexOf('/'));
-					if(!FileSystem.exists(dir)) FileSystem.createDirectory(dir);
-
-					var data = f.data;
-					if(data != null)
-						File.saveBytes(targetPath, data);
-				}
-			}
-			#end
-
-			var jsonInside = zipExtractPath + json.image + '.json';
-			if(FileSystem.exists(jsonInside))
-			{
-				loadCharacterFile(Json.parse(File.getContent(jsonInside)));
-				return;
-			}
-		}
-
-		// SWF loading
-		if(isSWF)
-		{
-			var bytes:ByteArray;
-			#if MODS_ALLOWED
-			bytes = ByteArray.fromFile(swfPath);
-			#else
-			bytes = Assets.getBytes('images/' + json.image + '.swf');
-			#end
-
-			var loader = new Loader();
-			loader.contentLoaderInfo.addEventListener(Event.COMPLETE, function(_) {
-				swfClip = cast(loader.content, MovieClip);
-				addChild(swfClip);
-				swfClip.play();
-
-				// Map SWF frame labels for FNF animation control
-				for (label in swfClip.currentLabels)
-					swfLabels.set(label.name.toLowerCase(), label);
-			});
-			loader.loadBytes(bytes);
-		}
-
 
 		#if flxanimate
 		var animToFind:String = Paths.getPath('images/' + json.image + '/Animation.json', TEXT);
@@ -245,7 +154,7 @@ class Character extends FlxSprite
 		scale.set(1, 1);
 		updateHitbox();
 
-		if(!isAnimateAtlas && !isSWF)
+		if(!isAnimateAtlas)
 		{
 			frames = Paths.getMultiAtlas(json.image.split(','));
 		}
@@ -300,7 +209,7 @@ class Character extends FlxSprite
 				var animLoop:Bool = !!anim.loop; //Bruh
 				var animIndices:Array<Int> = anim.indices;
 
-				if(!isAnimateAtlas && !isSWF)
+				if(!isAnimateAtlas)
 				{
 					if(animIndices != null && animIndices.length > 0)
 						animation.addByIndices(animAnim, animName, animIndices, "", animFps, animLoop);
