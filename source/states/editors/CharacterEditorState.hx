@@ -885,3 +885,4 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 
 		return FileDialog.open("Select " + ext.toUpperCase() + " file", "", filter);
 	}
+}
