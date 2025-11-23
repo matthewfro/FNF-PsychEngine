@@ -5,7 +5,7 @@ import flixel.FlxSprite;
 import flixel.FlxCamera;
 import flixel.text.FlxText;
 import flixel.group.FlxSpriteGroup;
-import flixel.group.FlxTypedGroup;
+import flixel.group.FlxGroup.FlxTypedGroup;
 import flixel.math.FlxPoint;
 import flixel.math.FlxMath;
 import flixel.util.FlxColor;
@@ -31,15 +31,15 @@ import backend.Paths;
 import backend.ClientPrefs;
 
 import states.PlayState;
-import states.MusicBeatState;
+import backend.MusicBeatState;
 
-import states.editors.content.PsychUIBox;
-import states.editors.content.PsychUIInputText;
-import states.editors.content.PsychUIEventHandler;
-import states.editors.content.PsychUIDropDownMenu;
-import states.editors.content.PsychUICheckBox;
-import states.editors.content.PsychUINumericStepper;
-import states.editors.content.PsychUIButton;
+import backend.ui.PsychUIBox;
+import backend.ui.PsychUIInputText;
+import backend.ui.PsychUIEventHandler;
+import backend.ui.PsychUIDropDownMenu;
+import backend.ui.PsychUICheckBox;
+import backend.ui.PsychUINumericStepper;
+import backend.ui.PsychUIButton;
 import states.editors.content.PsychJsonPrinter;
 
 import haxe.Json;
@@ -1029,19 +1029,8 @@ class CharacterEditorState extends MusicBeatState implements PsychUIEventHandler
 	}
 
 	// ===========================================================
-	// ZIP HELPERS
+	// ZIP HELPER
 	// ===========================================================
-
-	inline function makeZipEntry(path:String, bytes:Bytes):Entry
-	{
-		return {
-			fileName: path,
-			fileSize: bytes.length,
-			fileTime: Date.now(),
-			compressed: false,
-			data: bytes
-		};
-	}
 
 	function createZipBytes(entries:Array<Entry>):Bytes
 	{
