@@ -323,7 +323,6 @@ class Character extends FlxSprite {
 				if (zipAnimations.exists(key)) {
 					// Accept indices override if provided
 					if (indices != null && indices.length > 0) {
-						var override:Array<Int> = [];
 						for (i in indices)
 							override.push(i);
 						zipAnimations.set(key, override);
