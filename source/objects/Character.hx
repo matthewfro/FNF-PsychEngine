@@ -5,6 +5,7 @@ import flixel.util.FlxDestroyUtil;
 import flixel.util.FlxSort;
 import openfl.utils.Assets;
 import openfl.utils.AssetType;
+import openfl.display.BitmapData;
 import haxe.Json;
 import haxe.io.Bytes;
 import haxe.zip.Reader;
