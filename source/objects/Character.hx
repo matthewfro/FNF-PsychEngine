@@ -586,11 +586,12 @@ class Character extends FlxSprite {
 		var reader = new Reader(new BytesInput(bytes));
 		var data = entry.data; // Bytes
 
-		var list = reader.read(); // List<Entry>
+		var list = reader.read(); // List<haxe.zip.Entry>
 
-		for (entry in list) {
-			var fn = entry.fileName.toLowerCase();
-			var bytes:Bytes = entry.data;
+		for (entry in list) // <--- this defines entry correctly
+		{
+			var fn:String = entry.fileName.toLowerCase();
+			var bytes:Bytes = entry.data; // <--- safe, correct API
 
 			switch (fn) {
 				case "data.json":
@@ -599,13 +600,14 @@ class Character extends FlxSprite {
 				case "library.json":
 					libraryData = bytes.toString();
 
-				case "sprite.xml", "sprites.xml", "anim.xml":
-					spriteXML = bytes.toString();
-
 				default:
-					if (fn.endsWith(".png")) {
+					// Load XML
+					if (fn.endsWith(".xml"))
+						spriteXML = bytes.toString();
+
+					// Load PNG bytes
+					if (fn.endsWith(".png"))
 						spritePNG = bytes;
-					}
 			}
 		}
 
@@ -616,11 +618,11 @@ class Character extends FlxSprite {
 
 		zipLibrary = null;
 		zipData = null;
-		
+
 		for (entry in list) {
-            var fn = entry.fileName.toLowerCase();
-            var bytes = entry.data;
-	
+			var fn = entry.fileName.toLowerCase();
+			var bytes = entry.data;
+
 			if (fn == "data.json")
 				animateData = bytes.toString();
 			if (fn == "library.json")
@@ -676,11 +678,11 @@ class Character extends FlxSprite {
 				var arr:Array<Int> = [];
 				var obj = Reflect.field(zipData.animations, field);
 
-				
-		    	if (obj.frames != null) {
-   			 		var frames:Array<Dynamic> = cast obj.frames;
-    	        	for (f in frames) arr.push(f);
-                }
+				if (obj.frames != null) {
+					var frames:Array<Dynamic> = cast obj.frames;
+					for (f in frames)
+						arr.push(f);
+				}
 
 				animateMap.set(field, arr);
 			}
