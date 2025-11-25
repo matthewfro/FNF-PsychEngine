@@ -113,6 +113,12 @@ class Character extends FlxSprite {
 	public var atlas:FlxAnimate;
 	#end
 
+	public var animateData:String = null;
+	public var libraryData:String = null;
+
+	public var spritePNG:Bytes = null;
+	public var spriteXML:String = null;
+
 	// NEW (REQUIRED)
 	public var zipLibrary:Dynamic = null;
 	public var zipData:Dynamic = null;
@@ -431,7 +437,7 @@ class Character extends FlxSprite {
 		#if flxanimate
 		if (isAnimateAtlas) {
 			if (v)
-				atlas.playing = !v;
+				atlas.animation.playing = !v;
 			return v;
 		}
 		#end
@@ -582,18 +588,24 @@ class Character extends FlxSprite {
 
 		var list = reader.read(); // List<Entry>
 
-		for (en in list) {
-			var fn = en.fileName.toLowerCase();
-			var bytes = en.data; // THIS IS THE FIX
+		for (entry in list) {
+			var fn = entry.fileName.toLowerCase();
+			var bytes:Bytes = entry.data;
 
-			if (fn == "data.json") {
-				animateData = bytes.toString();
-			} else if (fn == "library.json") {
-				libraryData = bytes.toString();
-			} else if (fn.endsWith(".png")) {
-				spritePNG = bytes; // bytes is already PNG data
-			} else if (fn.endsWith(".xml")) {
-				spriteXML = bytes.toString();
+			switch (fn) {
+				case "data.json":
+					animateData = bytes.toString();
+
+				case "library.json":
+					libraryData = bytes.toString();
+
+				case "sprite.xml", "sprites.xml", "anim.xml":
+					spriteXML = bytes.toString();
+
+				default:
+					if (fn.endsWith(".png")) {
+						spritePNG = bytes;
+					}
 			}
 		}
 
@@ -664,9 +676,11 @@ class Character extends FlxSprite {
 				var arr:Array<Int> = [];
 				var obj = Reflect.field(zipData.animations, field);
 
-				if (obj.frames != null)
-					for (f in obj.frames)
-						arr.push(f);
+				
+		    	if (obj.frames != null) {
+   			 		var frames:Array<Dynamic> = cast obj.frames;
+    	        	for (f in frames) arr.push(f);
+                }
 
 				animateMap.set(field, arr);
 			}
