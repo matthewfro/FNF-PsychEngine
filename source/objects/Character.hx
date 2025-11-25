@@ -31,10 +31,6 @@ import openfl.display.PNGEncoderOptions;
 import openfl.geom.Matrix;
 import openfl.geom.ColorTransform;
 
-#if flxanimate
-import flxanimate._PsychFlxAnimate.FlxAnimate;
-#end
-
 typedef CharacterFile = {
 	var animations:Array<AnimArray>;
 	var image:String;
