@@ -227,7 +227,7 @@ class Character extends FlxSprite {
 		//--------------------------------------------------
 		#if flxanimate
 		if (!isZip) {
-			var animJSON = Paths.getPath('images/' imageFile '/Animation.json', TEXT);
+			var animJSON = Paths.getPath('images/' + imageFile + '/Animation.json', TEXT);
 			var foundAnim = #if MODS_ALLOWED FileSystem.exists(animJSON) #else Assets.exists(animJSON) #end;
 
 			if (foundAnim) {
