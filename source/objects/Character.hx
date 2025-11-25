@@ -584,31 +584,30 @@ class Character extends FlxSprite {
 	public function loadZIP(path:String):Void {
 		var bytes:Bytes = #if MODS_ALLOWED File.getBytes(path) #else Assets.getBytes(path) #end;
 		var reader = new Reader(new BytesInput(bytes));
-		var data = entry.data; // Bytes
-
 		var list = reader.read(); // List<haxe.zip.Entry>
 
-		for (entry in list) // <--- this defines entry correctly
-		{
-			var fn:String = entry.fileName.toLowerCase();
-			var bytes:Bytes = entry.data; // <--- safe, correct API
+		var list = reader.read();
 
-			switch (fn) {
-				case "data.json":
-					animateData = bytes.toString();
+		for (entry in list) {
+		    var fn:String = entry.fileName.toLowerCase();
+		    var bytes:Bytes = entry.data;   // <--- NOW entry EXISTS
+	    	var data = entry.data; // Bytes
 
-				case "library.json":
-					libraryData = bytes.toString();
+ 		    switch (fn)
+	        {
+		        case "data.json":
+		            animateData = bytes.toString();
 
-				default:
-					// Load XML
-					if (fn.endsWith(".xml"))
-						spriteXML = bytes.toString();
+		        case "library.json":
+		            libraryData = bytes.toString();
 
-					// Load PNG bytes
-					if (fn.endsWith(".png"))
-						spritePNG = bytes;
-			}
+		        default:
+		            if (fn.endsWith(".xml"))
+                        spriteXML = bytes.toString();
+
+		            if (fn.endsWith(".png"))
+                        spritePNG = bytes;
+	        }
 		}
 
 		var animateData:String = null;
@@ -622,6 +621,7 @@ class Character extends FlxSprite {
 		for (entry in list) {
 			var fn = entry.fileName.toLowerCase();
 			var bytes = entry.data;
+	    	var data = entry.data; // Bytes
 
 			if (fn == "data.json")
 				animateData = bytes.toString();
