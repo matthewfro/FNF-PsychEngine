@@ -339,7 +339,7 @@ class Character extends FlxSprite {
 					var nd:Int = (animationNotes[0][1] > 2) ? 3 : 1;
 					nd = FlxG.random.int(0, 1);
 
-					playAnim("shoot" nd, true);
+					playAnim("shoot", nd, true);
 					animationNotes.shift();
 				}
 
